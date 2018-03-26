@@ -17,20 +17,46 @@
 package com.example.android.classicalmusicquiz;
 
 import android.content.Intent;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.media.session.MediaSessionCompat;
+import android.support.v4.media.session.PlaybackStateCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.view.View;
 import android.widget.Button;
-import android.widget.ImageView;
+import android.widget.Toast;
+
+import com.google.android.exoplayer2.DefaultLoadControl;
+import com.google.android.exoplayer2.ExoPlaybackException;
+import com.google.android.exoplayer2.ExoPlayerFactory;
+import com.google.android.exoplayer2.LoadControl;
+import com.google.android.exoplayer2.PlaybackParameters;
+import com.google.android.exoplayer2.Player;
+import com.google.android.exoplayer2.SimpleExoPlayer;
+import com.google.android.exoplayer2.Timeline;
+import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory;
+import com.google.android.exoplayer2.source.ExtractorMediaSource;
+import com.google.android.exoplayer2.source.MediaSource;
+import com.google.android.exoplayer2.source.TrackGroupArray;
+import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
+import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
+import com.google.android.exoplayer2.trackselection.TrackSelector;
+import com.google.android.exoplayer2.ui.PlayerView;
+import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
+import com.google.android.exoplayer2.util.Util;
 
 import java.util.ArrayList;
 
-public class QuizActivity extends AppCompatActivity implements View.OnClickListener {
+import timber.log.Timber;
 
+public class QuizActivity extends AppCompatActivity implements View.OnClickListener, Player.EventListener {
+
+    public static final String MEDIA_SESSION_TAG = "quiz_app_media_session";
     private static final int CORRECT_ANSWER_DELAY_MILLIS = 1000;
     private static final String REMAINING_SONGS_KEY = "remaining_songs";
     private int[] mButtonIDs = {R.id.buttonA, R.id.buttonB, R.id.buttonC, R.id.buttonD};
@@ -40,6 +66,10 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
     private int mCurrentScore;
     private int mHighScore;
     private Button[] mButtons;
+    private SimpleExoPlayer mExoPlayer;
+    private PlayerView mExoPlayerView;
+    private MediaSessionCompat mMediaSession;
+    private PlaybackStateCompat.Builder mPlaybackState;
 
 
     @Override
@@ -47,8 +77,7 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_quiz);
 
-        // TODO (2): Replace the ImageView with the SimpleExoPlayerView, and remove the method calls on the composerView.
-        ImageView composerView = (ImageView) findViewById(R.id.composerView);
+        mExoPlayerView = findViewById(R.id.composerExoPlayerView);
 
         boolean isNewGame = !getIntent().hasExtra(REMAINING_SONGS_KEY);
 
@@ -69,9 +98,7 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
         mQuestionSampleIDs = QuizUtils.generateQuestion(mRemainingSampleIDs);
         mAnswerSampleID = QuizUtils.getCorrectAnswerID(mQuestionSampleIDs);
 
-        // TODO (3): Replace the default artwork in the SimpleExoPlayerView with the question mark drawable.
-        // Load the image of the composer for the answer into the ImageView.
-        composerView.setImageBitmap(Sample.getComposerArtBySampleID(this, mAnswerSampleID));
+        mExoPlayerView.setDefaultArtwork(BitmapFactory.decodeResource(getResources(), R.drawable.question_mark));
 
         // If there is only one answer left, end the game.
         if (mQuestionSampleIDs.size() < 2) {
@@ -82,16 +109,57 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
         // Initialize the buttons with the composers names.
         mButtons = initializeButtons(mQuestionSampleIDs);
 
-        // TODO (4): Create a Sample object using the Sample.getSampleByID() method and passing in mAnswerSampleID;
-        // TODO (5): Create a method called initializePlayer() that takes a Uri as an argument and call it here, passing in the Sample URI.
+        Sample sample = Sample.getSampleByID(this, mAnswerSampleID);
+
+        initializePlayer(Uri.parse(sample.getUri()));
+
+        initializeMediaSession();
+
+    }
+
+    private void initializeMediaSession() {
+        mMediaSession = new MediaSessionCompat(this, MEDIA_SESSION_TAG);
+        mMediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
+        mMediaSession.setMediaButtonReceiver(null);
+
+        mPlaybackState = new PlaybackStateCompat.Builder().setActions(
+                        PlaybackStateCompat.ACTION_PLAY |
+                                PlaybackStateCompat.ACTION_PAUSE |
+                                PlaybackStateCompat.ACTION_PLAY_PAUSE |
+                                PlaybackStateCompat.ACTION_FAST_FORWARD |
+                                PlaybackStateCompat.ACTION_REWIND |
+                                PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
+                );
+
+        mMediaSession.setPlaybackState(mPlaybackState.build());
+        mMediaSession.setCallback(new QuizMediaSessionCallBacks());
+
+        mMediaSession.setActive(true);
+
+    }
+
+
+    private void initializePlayer(Uri uri) {
+        if (mExoPlayer == null) {
+
+            // Create an instance of the ExoPlayer.
+            TrackSelector trackSelector = new DefaultTrackSelector();
+
+            LoadControl loadControl = new DefaultLoadControl();
+            mExoPlayer = ExoPlayerFactory.newSimpleInstance(this, trackSelector, loadControl);
+
+            mExoPlayerView.setPlayer(mExoPlayer);
+
+            // Prepare the MediaSource.
+            String userAgent = Util.getUserAgent(this, "ClassicalMusicQuiz");
+            MediaSource mediaSource = new ExtractorMediaSource(uri, new DefaultDataSourceFactory(
+                    this, userAgent), new DefaultExtractorsFactory(), null, null);
+            mExoPlayer.prepare(mediaSource);
+            mExoPlayer.setPlayWhenReady(true);
+            mExoPlayer.addListener(this);
 
         }
-
-
-    // In initializePayer
-    // TODO (6): Instantiate a SimpleExoPlayer object using DefaultTrackSelector and DefaultLoadControl.
-    // TODO (7): Prepare the MediaSource using DefaultDataSourceFactory and DefaultExtractorsFactory, as well as the Sample URI you passed in.
-    // TODO (8): Prepare the ExoPlayer with the MediaSource, start playing the sample and set the SimpleExoPlayer to the SimpleExoPlayerView.
+    }
 
 
     /**
@@ -104,7 +172,7 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
     private Button[] initializeButtons(ArrayList<Integer> answerSampleIDs) {
         Button[] buttons = new Button[mButtonIDs.length];
         for (int i = 0; i < answerSampleIDs.size(); i++) {
-            Button currentButton = (Button) findViewById(mButtonIDs[i]);
+            Button currentButton = findViewById(mButtonIDs[i]);
             Sample currentSample = Sample.getSampleByID(this, answerSampleIDs.get(i));
             buttons[i] = currentButton;
             currentButton.setOnClickListener(this);
@@ -143,7 +211,7 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
         // Get the ID of the sample that the user selected.
         int userAnswerSampleID = mQuestionSampleIDs.get(userAnswerIndex);
 
-        // If the user is correct, increase there score and update high score.
+        // If the user is correct, increase the score and update high score.
         if (QuizUtils.userCorrect(mAnswerSampleID, userAnswerSampleID)) {
             mCurrentScore++;
             QuizUtils.setCurrentScore(this, mCurrentScore);
@@ -161,7 +229,7 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
         handler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                // TODO (9): Stop the playback when you go to the next question.
+                mExoPlayer.stop();
                 Intent nextQuestionIntent = new Intent(QuizActivity.this, QuizActivity.class);
                 nextQuestionIntent.putExtra(REMAINING_SONGS_KEY, mRemainingSampleIDs);
                 finish();
@@ -175,10 +243,10 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
      * Disables the buttons and changes the background colors to show the correct answer.
      */
     private void showCorrectAnswer() {
+        mExoPlayerView.setDefaultArtwork(Sample.getComposerArtBySampleID(this, mAnswerSampleID));
         for (int i = 0; i < mQuestionSampleIDs.size(); i++) {
             int buttonSampleID = mQuestionSampleIDs.get(i);
 
-            // TODO (10): Change the default artwork in the SimpleExoPlayerView to show the picture of the composer, when the user has answered the question.
             mButtons[i].setEnabled(false);
             if (buttonSampleID == mAnswerSampleID) {
                 mButtons[i].getBackground().setColorFilter(ContextCompat.getColor
@@ -196,4 +264,153 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     // TODO (11): Override onDestroy() to stop and release the player when the Activity is destroyed.
+
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        mExoPlayer.stop();
+        mExoPlayer.release();
+        mMediaSession.setActive(false);
+    }
+
+    /**
+     * Called when the timeline and/or manifest has been refreshed.
+     * <p>
+     * Note that if the timeline has changed then a position discontinuity may also have occurred.
+     * For example, the current period index may have changed as a result of periods being added or
+     * removed from the timeline. This will <em>not</em> be reported via a separate call to
+     * {@link #onPositionDiscontinuity(int)}.
+     *
+     * @param timeline The latest timeline. Never null, but may be empty.
+     * @param manifest The latest manifest. May be null.
+     * @param reason   The {@link Player.TimelineChangeReason} responsible for this timeline change.
+     */
+    @Override
+    public void onTimelineChanged(Timeline timeline, Object manifest, int reason) {
+
+    }
+
+    /**
+     * Called when the available or selected tracks change.
+     *
+     * @param trackGroups     The available tracks. Never null, but may be of length zero.
+     * @param trackSelections The track selections for each renderer. Never null and always of
+     *                        length {@link getRendererCount()}, but may contain null elements.
+     */
+    @Override
+    public void onTracksChanged(TrackGroupArray trackGroups, TrackSelectionArray trackSelections) {
+
+    }
+
+    /**
+     * Called when the player starts or stops loading the source.
+     *
+     * @param isLoading Whether the source is currently being loaded.
+     */
+    @Override
+    public void onLoadingChanged(boolean isLoading) {
+
+    }
+
+    /**
+     * Called when the value returned from either {@link #getPlayWhenReady()} or
+     * {@link #getPlaybackState()} changes.
+     *
+     * @param playWhenReady Whether playback will proceed when ready.
+     * @param playbackState One of the {@code STATE} constants.
+     */
+    @Override
+    public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
+
+
+        if ((playbackState == Player.STATE_READY) & mExoPlayer.getPlayWhenReady()) {
+
+            mPlaybackState.setState(PlaybackStateCompat.STATE_PLAYING, mExoPlayer.getContentPosition(), 1);
+
+            Toast.makeText(this, "ExoPlayer.STATE_READY playing", Toast.LENGTH_SHORT).show();
+            Timber.d("ExoPlayer.STATE_READY playing");
+        } else if ((playbackState == Player.STATE_READY) && !mExoPlayer.getPlayWhenReady()) {
+
+            mPlaybackState.setState(PlaybackStateCompat.STATE_PAUSED, mExoPlayer.getContentPosition(), 1);
+
+            Toast.makeText(this, "ExoPlayer.STATE_READY paused", Toast.LENGTH_SHORT).show();
+            Timber.d("ExoPlayer.STATE_READY paused");
+        }
+
+        mMediaSession.setPlaybackState(mPlaybackState.build());
+    }
+
+    /**
+     * Called when the value of {@link #getRepeatMode()} changes.
+     *
+     * @param repeatMode The {@link RepeatMode} used for playback.
+     */
+    @Override
+    public void onRepeatModeChanged(int repeatMode) {
+
+    }
+
+    /**
+     * Called when the value of {@link #getShuffleModeEnabled()} changes.
+     *
+     * @param shuffleModeEnabled Whether shuffling of windows is enabled.
+     */
+    @Override
+    public void onShuffleModeEnabledChanged(boolean shuffleModeEnabled) {
+
+    }
+
+    /**
+     * Called when an error occurs. The playback state will transition to {@link #STATE_IDLE}
+     * immediately after this method is called. The player instance can still be used, and
+     * {@link #release()} must still be called on the player should it no longer be required.
+     *
+     * @param error The error.
+     */
+    @Override
+    public void onPlayerError(ExoPlaybackException error) {
+
+    }
+
+    /**
+     * Called when a position discontinuity occurs without a change to the timeline. A position
+     * discontinuity occurs when the current window or period index changes (as a result of playback
+     * transitioning from one period in the timeline to the next), or when the playback position
+     * jumps within the period currently being played (as a result of a seek being performed, or
+     * when the source introduces a discontinuity internally).
+     * <p>
+     * When a position discontinuity occurs as a result of a change to the timeline this method is
+     * <em>not</em> called. {@link #onTimelineChanged(Timeline, Object, int)} is called in this
+     * case.
+     *
+     * @param reason The {@link DiscontinuityReason} responsible for the discontinuity.
+     */
+    @Override
+    public void onPositionDiscontinuity(int reason) {
+
+    }
+
+    /**
+     * Called when the current playback parameters change. The playback parameters may change due to
+     * a call to {@link #setPlaybackParameters(PlaybackParameters)}, or the player itself may change
+     * them (for example, if audio playback switches to passthrough mode, where speed adjustment is
+     * no longer possible).
+     *
+     * @param playbackParameters The playback parameters.
+     */
+    @Override
+    public void onPlaybackParametersChanged(PlaybackParameters playbackParameters) {
+
+    }
+
+    /**
+     * Called when all pending seek requests have been processed by the player. This is guaranteed
+     * to happen after any necessary changes to the player state were reported to
+     * {@link #onPlayerStateChanged(boolean, int)}.
+     */
+    @Override
+    public void onSeekProcessed() {
+
+    }
 }
