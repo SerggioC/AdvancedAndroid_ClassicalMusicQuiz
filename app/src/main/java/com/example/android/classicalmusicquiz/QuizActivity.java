@@ -16,6 +16,10 @@
 
 package com.example.android.classicalmusicquiz;
 
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -23,7 +27,9 @@ import android.graphics.PorterDuff;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.support.v4.app.NotificationCompat;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.media.session.MediaButtonReceiver;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 import android.support.v7.app.AppCompatActivity;
@@ -59,6 +65,9 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
     public static final String MEDIA_SESSION_TAG = "quiz_app_media_session";
     private static final int CORRECT_ANSWER_DELAY_MILLIS = 1000;
     private static final String REMAINING_SONGS_KEY = "remaining_songs";
+    private static final String CHANNEL_ID = "quiz_app_notification_channel_id";
+    public static final String NOTIFICATION_TAG = "quiz_app_notification_tag";
+    public static final int NOTIFICATION_ID = 0;
     private int[] mButtonIDs = {R.id.buttonA, R.id.buttonB, R.id.buttonC, R.id.buttonD};
     private ArrayList<Integer> mRemainingSampleIDs;
     private ArrayList<Integer> mQuestionSampleIDs;
@@ -68,8 +77,9 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
     private Button[] mButtons;
     private SimpleExoPlayer mExoPlayer;
     private PlayerView mExoPlayerView;
-    private MediaSessionCompat mMediaSession;
+    private static MediaSessionCompat mMediaSession;
     private PlaybackStateCompat.Builder mPlaybackState;
+    private NotificationManager mNotificationManager;
 
 
     @Override
@@ -111,30 +121,8 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
 
         Sample sample = Sample.getSampleByID(this, mAnswerSampleID);
 
+
         initializePlayer(Uri.parse(sample.getUri()));
-
-        initializeMediaSession();
-
-    }
-
-    private void initializeMediaSession() {
-        mMediaSession = new MediaSessionCompat(this, MEDIA_SESSION_TAG);
-        mMediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
-        mMediaSession.setMediaButtonReceiver(null);
-
-        mPlaybackState = new PlaybackStateCompat.Builder().setActions(
-                        PlaybackStateCompat.ACTION_PLAY |
-                                PlaybackStateCompat.ACTION_PAUSE |
-                                PlaybackStateCompat.ACTION_PLAY_PAUSE |
-                                PlaybackStateCompat.ACTION_FAST_FORWARD |
-                                PlaybackStateCompat.ACTION_REWIND |
-                                PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
-                );
-
-        mMediaSession.setPlaybackState(mPlaybackState.build());
-        mMediaSession.setCallback(new QuizMediaSessionCallBacks());
-
-        mMediaSession.setActive(true);
 
     }
 
@@ -152,15 +140,82 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
 
             // Prepare the MediaSource.
             String userAgent = Util.getUserAgent(this, "ClassicalMusicQuiz");
-            MediaSource mediaSource = new ExtractorMediaSource(uri, new DefaultDataSourceFactory(
-                    this, userAgent), new DefaultExtractorsFactory(), null, null);
+            MediaSource mediaSource = new ExtractorMediaSource(
+                    uri,
+                    new DefaultDataSourceFactory(this, userAgent),
+                    new DefaultExtractorsFactory(),
+                    null,
+                    null
+            );
+
             mExoPlayer.prepare(mediaSource);
             mExoPlayer.setPlayWhenReady(true);
             mExoPlayer.addListener(this);
 
+            initializeMediaSession();
+
         }
     }
 
+    private void initializeMediaSession() {
+        mMediaSession = new MediaSessionCompat(this, MEDIA_SESSION_TAG);
+        mMediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
+        mMediaSession.setMediaButtonReceiver(null);
+
+        mPlaybackState = new PlaybackStateCompat.Builder().setActions(
+                PlaybackStateCompat.ACTION_PLAY |
+                        PlaybackStateCompat.ACTION_PAUSE |
+                        PlaybackStateCompat.ACTION_PLAY_PAUSE |
+                        PlaybackStateCompat.ACTION_FAST_FORWARD |
+                        PlaybackStateCompat.ACTION_REWIND |
+                        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
+        );
+
+        mMediaSession.setPlaybackState(mPlaybackState.build());
+        mMediaSession.setCallback(new QuizMediaSessionCallBacks(mExoPlayer));
+        mMediaSession.setActive(true);
+    }
+
+    public void showPlaybackNotification(PlaybackStateCompat playbackState) {
+        Timber.d("showPlaybackNotification init");
+        NotificationCompat.Builder notificationCompatBuildert = new NotificationCompat.Builder(this, CHANNEL_ID);
+
+        int icon;
+        String playPause;
+        if (playbackState.getState() == PlaybackStateCompat.STATE_PLAYING) {
+            icon = R.drawable.exo_controls_pause;
+            playPause = getString(R.string.exo_controls_pause_description);
+        } else {
+            icon = R.drawable.exo_controls_play;
+            playPause = getString(R.string.exo_controls_play_description);
+        }
+
+        NotificationCompat.Action playPauseAction = new NotificationCompat.Action(
+                icon, playPause,
+                MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_PLAY_PAUSE));
+
+        NotificationCompat.Action restartAction = new NotificationCompat.Action(
+                R.drawable.exo_controls_previous, getString(R.string.exo_controls_previous_description),
+                MediaButtonReceiver.buildMediaButtonPendingIntent(this, PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS));
+
+        PendingIntent contentPendingIntent = PendingIntent.getActivity(this, 0, new Intent(this, QuizActivity.class), 0);
+
+        notificationCompatBuildert
+                .setContentTitle(getString(R.string.guess))
+                .setContentText(getString(R.string.notification_text))
+                .setContentIntent(contentPendingIntent)
+                .setSmallIcon(R.drawable.ic_musical_note)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .addAction(restartAction)
+                .addAction(playPauseAction)
+                .setStyle(new android.support.v4.media.app.NotificationCompat.MediaStyle()
+                        .setMediaSession(mMediaSession.getSessionToken())
+                        .setShowActionsInCompactView(0, 1));
+
+        mNotificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        mNotificationManager.notify(NOTIFICATION_TAG, NOTIFICATION_ID, notificationCompatBuildert.build());
+
+    }
 
     /**
      * Initializes the button to the correct views, and sets the text to the composers names,
@@ -263,66 +318,44 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
         }
     }
 
-    // TODO (11): Override onDestroy() to stop and release the player when the Activity is destroyed.
+    @Override
+    protected void onResume() {
+        super.onResume();
+        showPlaybackNotification(mPlaybackState.build());
+    }
 
+    @Override
+    protected void onStop() {
+        super.onStop();
+    }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        mNotificationManager.cancel(NOTIFICATION_TAG, NOTIFICATION_ID);
         mExoPlayer.stop();
         mExoPlayer.release();
         mMediaSession.setActive(false);
+        Timber.w("destroying activity quiz");
     }
 
-    /**
-     * Called when the timeline and/or manifest has been refreshed.
-     * <p>
-     * Note that if the timeline has changed then a position discontinuity may also have occurred.
-     * For example, the current period index may have changed as a result of periods being added or
-     * removed from the timeline. This will <em>not</em> be reported via a separate call to
-     * {@link #onPositionDiscontinuity(int)}.
-     *
-     * @param timeline The latest timeline. Never null, but may be empty.
-     * @param manifest The latest manifest. May be null.
-     * @param reason   The {@link Player.TimelineChangeReason} responsible for this timeline change.
-     */
     @Override
     public void onTimelineChanged(Timeline timeline, Object manifest, int reason) {
 
     }
 
-    /**
-     * Called when the available or selected tracks change.
-     *
-     * @param trackGroups     The available tracks. Never null, but may be of length zero.
-     * @param trackSelections The track selections for each renderer. Never null and always of
-     *                        length {@link getRendererCount()}, but may contain null elements.
-     */
     @Override
     public void onTracksChanged(TrackGroupArray trackGroups, TrackSelectionArray trackSelections) {
 
     }
 
-    /**
-     * Called when the player starts or stops loading the source.
-     *
-     * @param isLoading Whether the source is currently being loaded.
-     */
     @Override
     public void onLoadingChanged(boolean isLoading) {
 
     }
 
-    /**
-     * Called when the value returned from either {@link #getPlayWhenReady()} or
-     * {@link #getPlaybackState()} changes.
-     *
-     * @param playWhenReady Whether playback will proceed when ready.
-     * @param playbackState One of the {@code STATE} constants.
-     */
     @Override
     public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
-
 
         if ((playbackState == Player.STATE_READY) & mExoPlayer.getPlayWhenReady()) {
 
@@ -339,78 +372,46 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
         }
 
         mMediaSession.setPlaybackState(mPlaybackState.build());
+        showPlaybackNotification(mPlaybackState.build());
     }
 
-    /**
-     * Called when the value of {@link #getRepeatMode()} changes.
-     *
-     * @param repeatMode The {@link RepeatMode} used for playback.
-     */
     @Override
     public void onRepeatModeChanged(int repeatMode) {
 
     }
 
-    /**
-     * Called when the value of {@link #getShuffleModeEnabled()} changes.
-     *
-     * @param shuffleModeEnabled Whether shuffling of windows is enabled.
-     */
     @Override
     public void onShuffleModeEnabledChanged(boolean shuffleModeEnabled) {
 
     }
 
-    /**
-     * Called when an error occurs. The playback state will transition to {@link #STATE_IDLE}
-     * immediately after this method is called. The player instance can still be used, and
-     * {@link #release()} must still be called on the player should it no longer be required.
-     *
-     * @param error The error.
-     */
     @Override
     public void onPlayerError(ExoPlaybackException error) {
 
     }
 
-    /**
-     * Called when a position discontinuity occurs without a change to the timeline. A position
-     * discontinuity occurs when the current window or period index changes (as a result of playback
-     * transitioning from one period in the timeline to the next), or when the playback position
-     * jumps within the period currently being played (as a result of a seek being performed, or
-     * when the source introduces a discontinuity internally).
-     * <p>
-     * When a position discontinuity occurs as a result of a change to the timeline this method is
-     * <em>not</em> called. {@link #onTimelineChanged(Timeline, Object, int)} is called in this
-     * case.
-     *
-     * @param reason The {@link DiscontinuityReason} responsible for the discontinuity.
-     */
     @Override
     public void onPositionDiscontinuity(int reason) {
 
     }
 
-    /**
-     * Called when the current playback parameters change. The playback parameters may change due to
-     * a call to {@link #setPlaybackParameters(PlaybackParameters)}, or the player itself may change
-     * them (for example, if audio playback switches to passthrough mode, where speed adjustment is
-     * no longer possible).
-     *
-     * @param playbackParameters The playback parameters.
-     */
     @Override
     public void onPlaybackParametersChanged(PlaybackParameters playbackParameters) {
 
     }
 
-    /**
-     * Called when all pending seek requests have been processed by the player. This is guaranteed
-     * to happen after any necessary changes to the player state were reported to
-     * {@link #onPlayerStateChanged(boolean, int)}.
-     */
     @Override
     public void onSeekProcessed() {
 
     }
+
+    public static class MediaReceiver extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            MediaButtonReceiver.handleIntent(mMediaSession, intent);
+            Timber.d("Intent = " + intent.getAction());
+        }
+    }
+
+
 }

@@ -85,8 +85,8 @@ class QuizUtils {
      * @return The user's current score.
      */
     static int getCurrentScore(Context context){
-        SharedPreferences mPreferences = context.getSharedPreferences(
-                context.getString(R.string.preference_file_key), Context.MODE_PRIVATE);
+        SharedPreferences mPreferences = context
+                .getSharedPreferences(context.getString(R.string.preference_file_key), Context.MODE_PRIVATE);
         return mPreferences.getInt(CURRENT_SCORE_KEY, 0);
     }
 
