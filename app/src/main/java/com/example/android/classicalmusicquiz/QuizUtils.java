@@ -28,7 +28,7 @@ class QuizUtils {
 
     private static final String CURRENT_SCORE_KEY = "current_score";
     private static final String HIGH_SCORE_KEY = "high_score";
-    private static final String GAME_FINISHED = "game_finished";
+    static final String GAME_FINISHED = "game_finished";
     private static final int NUM_ANSWERS = 4;
 
     /**

@@ -22,11 +22,9 @@ import android.support.v7.app.AppCompatActivity;
 import android.view.View;
 import android.widget.TextView;
 
+import static com.example.android.classicalmusicquiz.QuizUtils.GAME_FINISHED;
+
 public class MainActivity extends AppCompatActivity {
-
-
-    private static final String GAME_FINISHED = "game_finished";
-
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

@@ -80,6 +80,7 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
     private static MediaSessionCompat mMediaSession;
     private PlaybackStateCompat.Builder mPlaybackState;
     private NotificationManager mNotificationManager;
+    private boolean gameEnded;
 
 
     @Override
@@ -113,7 +114,10 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
         // If there is only one answer left, end the game.
         if (mQuestionSampleIDs.size() < 2) {
             QuizUtils.endGame(this);
+            gameEnded = true;
             finish();
+        } else {
+            gameEnded = false;
         }
 
         // Initialize the buttons with the composers names.
@@ -304,13 +308,13 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
 
             mButtons[i].setEnabled(false);
             if (buttonSampleID == mAnswerSampleID) {
-                mButtons[i].getBackground().setColorFilter(ContextCompat.getColor
-                                (this, android.R.color.holo_green_light),
+                mButtons[i].getBackground()
+                        .setColorFilter(ContextCompat.getColor(this, android.R.color.holo_green_light),
                         PorterDuff.Mode.MULTIPLY);
                 mButtons[i].setTextColor(Color.WHITE);
             } else {
-                mButtons[i].getBackground().setColorFilter(ContextCompat.getColor
-                                (this, android.R.color.holo_red_light),
+                mButtons[i].getBackground()
+                        .setColorFilter(ContextCompat.getColor(this, android.R.color.holo_red_light),
                         PorterDuff.Mode.MULTIPLY);
                 mButtons[i].setTextColor(Color.WHITE);
 
@@ -321,7 +325,13 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
     @Override
     protected void onResume() {
         super.onResume();
-        showPlaybackNotification(mPlaybackState.build());
+//        showPlaybackNotification(mPlaybackState.build());
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+//
     }
 
     @Override
@@ -332,11 +342,13 @@ public class QuizActivity extends AppCompatActivity implements View.OnClickListe
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        mNotificationManager.cancel(NOTIFICATION_TAG, NOTIFICATION_ID);
         mExoPlayer.stop();
         mExoPlayer.release();
         mMediaSession.setActive(false);
+        if (gameEnded) mNotificationManager.cancel(NOTIFICATION_TAG, NOTIFICATION_ID);
+
         Timber.w("destroying activity quiz");
+
     }
 
     @Override
